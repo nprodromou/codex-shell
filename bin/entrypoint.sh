@@ -8,6 +8,18 @@ set -euo pipefail
 : "${GIT_USER_NAME:=Codex CoWork}"
 : "${GIT_USER_EMAIL:=codex@prodromou.com}"
 
+# Codex CLI config — sourced from a k8s ConfigMap mounted at
+# /etc/codex-config/. The ConfigMap (managed in the apk8s repo) is the
+# source of truth; we copy its contents into ~/.codex/ on every boot,
+# overwriting any in-pod edits. To add MCPs or tweak config, edit the
+# ConfigMap and push — Stakater Reloader will restart this pod.
+if [ -d /etc/codex-config ]; then
+    mkdir -p "${HOME}/.codex"
+    # cp -L follows symlinks (configmap mounts are symlink farms).
+    cp -fL /etc/codex-config/. "${HOME}/.codex/" 2>/dev/null || true
+    chmod -R u+w "${HOME}/.codex" 2>/dev/null || true
+fi
+
 # git identity — applies to every commit made inside the pod.
 git config --global user.name  "${GIT_USER_NAME}"
 git config --global user.email "${GIT_USER_EMAIL}"
