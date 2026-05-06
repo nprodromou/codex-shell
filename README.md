@@ -29,15 +29,16 @@ Built by `.github/workflows/build.yml` on push to `main` or version tag.
 ## Runtime contract
 
 The entrypoint requires the following environment variables. They are mounted
-into the pod by an `ExternalSecret` that pulls from the 1Password Secure Note
-`agents-codex` in the Kubernetes vault.
+into the pod by an `ExternalSecret` that pulls from the `agent-codex` 1Password
+vault per the canonical [Agent Secret Naming Convention](https://prodromou.atlassian.net/wiki/spaces/Operations/pages/63438850).
 
-| Env var          | 1Password field   | Purpose                                            |
-| ---------------- | ----------------- | -------------------------------------------------- |
-| `GH_TOKEN`       | `github_pat`      | GitHub PAT (`codex-prodromou`); used by `gh`       |
-| `PLANE_TOKEN`    | `plane_token`     | Plane API key for `codex-prodromou` workspace user |
-| `GIT_USER_NAME`  | `git_user_name`   | Defaults to `Codex CoWork`                         |
-| `GIT_USER_EMAIL` | `git_user_email`  | Defaults to `codex@prodromou.com`                  |
+| Env var          | 1Password reference                       | Purpose                                            |
+| ---------------- | ----------------------------------------- | -------------------------------------------------- |
+| `GH_TOKEN`       | `op://agent-codex/github-pat/pat`         | GitHub PAT (`codex-prodromou`); used by `gh`       |
+| `CODEX_SESSION`  | `op://agent-codex/session/session`        | OpenAI Codex CLI auth blob                         |
+| `PLANE_TOKEN`    | `op://agent-codex/plane-token/token`      | Plane API key for `codex-prodromou` workspace user |
+| `GIT_USER_NAME`  | `op://agent-codex/github-pat/git_user_name`  | Defaults to `Codex CoWork`                      |
+| `GIT_USER_EMAIL` | `op://agent-codex/github-pat/git_user_email` | Defaults to `codex@prodromou.com`               |
 
 Optional:
 
