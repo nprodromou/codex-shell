@@ -4,7 +4,7 @@
 # 2. Exposes the configured codex-cli shell over ttyd on port 7681.
 set -euo pipefail
 
-: "${GH_TOKEN:?GH_TOKEN must be set (1Password: op://agent-codex/github-pat/pat)}"
+: "${GH_TOKEN:?GH_TOKEN must be set (1Password: op://Kubernetes/codex-github-pat/pat)}"
 : "${GIT_USER_NAME:=Codex CoWork}"
 : "${GIT_USER_EMAIL:=codex@prodromou.com}"
 

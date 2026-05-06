@@ -2,9 +2,9 @@
 #
 # Runs ttyd → bash with codex-cli on PATH (codex-cli in the browser).
 # Identity is provided at runtime via env vars sourced from a k8s Secret
-# backed by 1Password (`agent-codex` vault). gh + git are configured by the
-# entrypoint script so commits/PRs from inside the pod attribute to
-# codex-prodromou.
+# backed by 1Password (deploy vault, typically `Kubernetes`). gh + git
+# are configured by the entrypoint script so commits/PRs from inside the
+# pod attribute to codex-prodromou.
 #
 # code-server (VS Code in browser) is intentionally NOT installed here —
 # that is a separate concern tracked by WOVED-35.
