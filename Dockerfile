@@ -9,8 +9,9 @@
 # code-server (VS Code in browser) is intentionally NOT installed here —
 # that is a separate concern tracked by WOVED-35.
 
+FROM debian:bookworm-slim
+
 ARG NODE_VERSION=22
-FROM node:${NODE_VERSION}-bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
@@ -27,6 +28,11 @@ RUN set -eux; \
         ca-certificates curl git gnupg jq less vim sudo tini \
         bash-completion locales tmux unzip zip openssh-client \
         build-essential python3 python3-pip; \
+    # Node.js from NodeSource (pinned major version). The previous
+    # node:*-bookworm-slim base shipped a phantom uid/gid 1000 user that
+    # collided with the codex user we add below.
+    curl -fsSL "https://deb.nodesource.com/setup_${NODE_VERSION}.x" | bash -; \
+    apt-get install -y --no-install-recommends nodejs; \
     # GitHub CLI from official apt repo.
     curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
         | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg; \
