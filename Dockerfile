@@ -27,7 +27,8 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
         ca-certificates curl git gnupg jq less vim sudo tini \
         bash-completion locales tmux unzip zip openssh-client \
-        build-essential python3 python3-pip; \
+        build-essential python3 python3-pip \
+        passwd; \
     # Node.js from NodeSource (pinned major version). The previous
     # node:*-bookworm-slim base shipped a phantom uid/gid 1000 user that
     # collided with the codex user we add below.
