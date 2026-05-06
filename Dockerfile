@@ -18,7 +18,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LC_ALL=C.UTF-8 \
     TZ=America/Los_Angeles \
     HOME=/home/codex \
-    PATH=/home/codex/.local/bin:/usr/local/bin:/usr/bin:/bin
+    PATH=/home/codex/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # System deps + gh + tmux + standard CLI utilities. ttyd is fetched
 # separately below — Debian Bookworm doesn't carry it.
