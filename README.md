@@ -1,19 +1,24 @@
-# codex-apk8s
+# codex-shell
 
 Container image for running [OpenAI codex-cli](https://github.com/openai/codex)
-as a single, browser-accessible instance on the `apk8s` Kubernetes cluster.
+as a single, browser-accessible shell on Kubernetes — codex CLI exposed over
+ttyd, identity locked to a dedicated GitHub user, persistent home volume.
+
+Cluster-agnostic: the image runs anywhere Kubernetes can pull from GHCR. The
+canonical deploy lives in `nprodromou/apk8s`, but nothing in the image is
+specific to that cluster.
 
 ## What it is
 
 A long-running pod that exposes a `bash` shell with `codex` (and `gh`, `git`,
 `tmux`, etc.) on `PATH` over [ttyd](https://github.com/tsl0922/ttyd). Hit it
-from a WARP-enrolled browser at `codex.prodromou.com` and you get a terminal.
-Identity is locked to `codex-prodromou` so commits, PRs, and Plane tickets
-attribute deterministically — no more `gh auth` collisions with whichever
-identity a developer machine logged in last.
+from a browser and you get a terminal. Identity is locked to a dedicated
+GitHub user (`codex-prodromou` in the canonical deploy) so commits, PRs, and
+Plane tickets attribute deterministically — no more `gh auth` collisions with
+whichever identity a developer machine logged in last.
 
-This image is the runtime; the cluster manifests live in
-[`nprodromou/apk8s` → `kubernetes/apps/agents/codex-cli`](https://github.com/nprodromou/apk8s).
+This image is the runtime; the cluster manifests for the canonical deploy
+live in [`nprodromou/apk8s` → `kubernetes/apps/agents/codex-cli`](https://github.com/nprodromou/apk8s).
 
 `code-server` (VS Code in the browser) is intentionally **not** in this image
 — see WOVED-35 for that.
@@ -21,7 +26,7 @@ This image is the runtime; the cluster manifests live in
 ## Image
 
 ```
-ghcr.io/nprodromou/codex-apk8s:latest
+ghcr.io/nprodromou/codex-shell:latest
 ```
 
 Built by `.github/workflows/build.yml` on push to `main` or version tag.
@@ -63,14 +68,14 @@ state, and any cloned repos under `~/workspace`.
 
 ```sh
 # Build
-docker build -t codex-apk8s:dev .
+docker build -t codex-shell:dev .
 
 # Run with the env vars the entrypoint expects.
 docker run --rm -it -p 7681:7681 \
   -e GH_TOKEN="$(gh auth token)" \
   -e GIT_USER_NAME="Local Test" \
   -e GIT_USER_EMAIL="$(git config user.email)" \
-  codex-apk8s:dev
+  codex-shell:dev
 ```
 
 Then open <http://localhost:7681>.
