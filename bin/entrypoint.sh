@@ -4,7 +4,7 @@
 # 2. Exposes the configured codex-cli shell over ttyd on port 7681.
 set -euo pipefail
 
-: "${GH_TOKEN:?GH_TOKEN must be set (1Password: agents-codex/github_pat)}"
+: "${GH_TOKEN:?GH_TOKEN must be set (1Password: op://Kubernetes/codex-github-pat/pat)}"
 : "${GIT_USER_NAME:=Codex CoWork}"
 : "${GIT_USER_EMAIL:=codex@prodromou.com}"
 
@@ -18,6 +18,18 @@ if [ -d /etc/codex-config ]; then
     # cp -L follows symlinks (configmap mounts are symlink farms).
     cp -fL /etc/codex-config/. "${HOME}/.codex/" 2>/dev/null || true
     chmod -R u+w "${HOME}/.codex" 2>/dev/null || true
+fi
+
+# Codex CLI session — seeded ONCE from the CODEX_SESSION env var (sourced
+# from op://Kubernetes/codex-session/session) on first boot. After that,
+# ~/.codex/auth.json lives on the Longhorn PVC and survives restarts; the
+# in-shell `/login` flow is the supported path for re-auth when the
+# session expires. To force a re-seed from 1Password, delete
+# ~/.codex/auth.json from inside the pod and restart it. WOVED-38.
+if [ ! -f "${HOME}/.codex/auth.json" ] && [ -n "${CODEX_SESSION:-}" ]; then
+    mkdir -p "${HOME}/.codex"
+    printf '%s' "${CODEX_SESSION}" > "${HOME}/.codex/auth.json"
+    chmod 600 "${HOME}/.codex/auth.json"
 fi
 
 # git identity — applies to every commit made inside the pod.
