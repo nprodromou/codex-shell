@@ -19,14 +19,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/home/codex \
     PATH=/home/codex/.local/bin:/usr/local/bin:/usr/bin:/bin
 
-# System deps + ttyd + gh + tmux + standard CLI utilities.
+# System deps + gh + tmux + standard CLI utilities. ttyd is fetched
+# separately below — Debian Bookworm doesn't carry it.
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         ca-certificates curl git gnupg jq less vim sudo tini \
         bash-completion locales tmux unzip zip openssh-client \
-        build-essential python3 python3-pip \
-        ttyd; \
+        build-essential python3 python3-pip; \
     # GitHub CLI from official apt repo.
     curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
         | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg; \
@@ -36,6 +36,24 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends gh; \
     rm -rf /var/lib/apt/lists/*
+
+# ttyd — fetch the upstream static binary release. Debian Bookworm
+# doesn't ship a ttyd package, and building from source pulls in
+# libwebsockets + cmake + a long toolchain. The upstream releases
+# publish per-arch static binaries that we drop into /usr/local/bin.
+ARG TTYD_VERSION=1.7.7
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) ttyd_arch="x86_64" ;; \
+      arm64) ttyd_arch="aarch64" ;; \
+      *) echo "unsupported arch: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL \
+      "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ttyd_arch}" \
+      -o /usr/local/bin/ttyd; \
+    chmod +x /usr/local/bin/ttyd; \
+    ttyd --version
 
 # Codex CLI (OpenAI's terminal coding agent).
 RUN npm install -g @openai/codex && npm cache clean --force
