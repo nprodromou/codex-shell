@@ -40,11 +40,13 @@ RUN set -eux; \
         build-essential python3 python3-pip \
         bubblewrap \
         passwd; \
-    # Node.js from NodeSource (pinned major version). Then upgrade
-    # npm to latest — NodeSource lags behind upstream by months.
+    # Node.js from NodeSource (pinned major version). NodeSource ships
+    # npm slightly behind upstream; we keep what they bundle since
+    # `npm install -g npm@latest` triggers a self-upgrade module-resolution
+    # bug at build time, and the bundled version works fine for installing
+    # the agent CLIs.
     curl -fsSL "https://deb.nodesource.com/setup_${NODE_VERSION}.x" | bash -; \
     apt-get install -y --no-install-recommends nodejs; \
-    npm install -g npm@latest; \
     # GitHub CLI from official apt repo.
     curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
         | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg; \
