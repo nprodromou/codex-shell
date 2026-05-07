@@ -50,6 +50,14 @@ gh auth setup-git
 # in the pod env to override.
 export PLANE_GATEWAY_URL="${PLANE_GATEWAY_URL:-https://n8n.prodromou.com/webhook/plane-gateway-v3}"
 
+# Plane API key alias — the m365-mcp repos' wrapper scripts (and the
+# agent-config plane MCP) read PLANE_API_KEY; our ExternalSecret names
+# it PLANE_TOKEN per the WOVED-36 secret-naming convention. Bridge the
+# two so scripts work without per-repo retrofits.
+if [ -n "${PLANE_TOKEN:-}" ] && [ -z "${PLANE_API_KEY:-}" ]; then
+    export PLANE_API_KEY="${PLANE_TOKEN}"
+fi
+
 # Per-agent config + auth bootstrap. Each agent variant declares:
 #   AGENT_CONFIG_DIR    — where the agent CLI looks for config (~/.codex, ~/.claude)
 #   AGENT_CONFIG_SOURCE — ConfigMap mount path for managed config
