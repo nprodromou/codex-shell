@@ -102,20 +102,51 @@ esac
 # gets a working runtime config. The ConfigMap overlay below wins on
 # any key it also sets. Today this carries the Codex sandbox/approval
 # baseline (see defaults/codex-config.toml; OPS-405).
+#
+# cp -afL: -a recurses + preserves attributes, -L dereferences symlinks.
+# Failures exit FATAL rather than being masked — same pattern as the
+# ConfigMap overlay below (OPS-406, codex-shell#10).
 AGENT_DEFAULTS_DIR="/etc/${AGENT}-defaults"
 if [ -d "${AGENT_DEFAULTS_DIR}" ]; then
-    cp -fL "${AGENT_DEFAULTS_DIR}/." "${AGENT_CONFIG_DIR}/" 2>/dev/null || true
+    if ! cp -afL "${AGENT_DEFAULTS_DIR}/." "${AGENT_CONFIG_DIR}/"; then
+        echo "FATAL: failed to sync image defaults from ${AGENT_DEFAULTS_DIR} to ${AGENT_CONFIG_DIR}" >&2
+        exit 1
+    fi
     chmod -R u+w "${AGENT_CONFIG_DIR}" 2>/dev/null || true
+
+    # Smoke check: if the defaults dir has any files, at least one must
+    # have landed in the destination. Catches silent permission/path
+    # failures that would otherwise mask a non-functional baseline.
+    if [ -n "$(find "${AGENT_DEFAULTS_DIR}" -mindepth 1 -print -quit 2>/dev/null)" ] \
+        && [ -z "$(find "${AGENT_CONFIG_DIR}" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+        echo "FATAL: defaults sync ran but ${AGENT_CONFIG_DIR} is empty" >&2
+        exit 1
+    fi
 fi
 
 # Layer 2 — managed config from a ConfigMap mounted at /etc/<agent>-config/.
 # The ConfigMap (apk8s repo) is the source of truth for model/MCP config;
 # in-pod edits get blown away on restart. Stakater Reloader restarts the
 # pod when the ConfigMap changes. Per-deployment overrides go here.
+#
+# cp -afL: -a recurses + preserves attributes, -L dereferences the
+# symlink farm that ConfigMap mounts use. The previous `cp -fL` skipped
+# subdirectories entirely and silently dropped managed config (OPS-406).
 if [ -d "${AGENT_CONFIG_SOURCE}" ]; then
-    # cp -L follows symlinks (configmap mounts are symlink farms).
-    cp -fL "${AGENT_CONFIG_SOURCE}/." "${AGENT_CONFIG_DIR}/" 2>/dev/null || true
+    if ! cp -afL "${AGENT_CONFIG_SOURCE}/." "${AGENT_CONFIG_DIR}/"; then
+        echo "FATAL: failed to sync managed config from ${AGENT_CONFIG_SOURCE} to ${AGENT_CONFIG_DIR}" >&2
+        exit 1
+    fi
     chmod -R u+w "${AGENT_CONFIG_DIR}" 2>/dev/null || true
+
+    # Smoke check: if the ConfigMap mount has any files, at least one
+    # must have landed in the destination. Catches silent
+    # permission/path failures that previously masked stale config.
+    if [ -n "$(find "${AGENT_CONFIG_SOURCE}" -mindepth 1 -print -quit 2>/dev/null)" ] \
+        && [ -z "$(find "${AGENT_CONFIG_DIR}" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+        echo "FATAL: managed config sync ran but ${AGENT_CONFIG_DIR} is empty" >&2
+        exit 1
+    fi
 fi
 
 # Pull nprodromou/agent-config for the canonical Nate-org instructions
