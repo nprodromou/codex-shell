@@ -124,6 +124,16 @@ if [ -f "${AGENT_CONFIG_REPO_DIR}/instructions/CLAUDE.md" ]; then
     ln -sf "${AGENT_CONFIG_REPO_DIR}/instructions/CLAUDE.md" "${INSTRUCTIONS_LINK}"
 fi
 
+# Run install.sh skills so any new or updated skills in agent-config
+# land in ~/.claude/skills/ on every pod boot. install.sh is idempotent
+# for the skills target (cp -R overwrites). Other install targets (mcp,
+# instructions, settings) are deliberately skipped — those live in the
+# apk8s ConfigMap / entrypoint, not in agent-config's local install.
+if [ -x "${AGENT_CONFIG_REPO_DIR}/install.sh" ]; then
+    (cd "${AGENT_CONFIG_REPO_DIR}" && ./install.sh skills) \
+        || echo "warning: install.sh skills failed (continuing without skill update)" >&2
+fi
+
 # Identity banner — surfaced by the bash prompt on login.
 AGENT_CONFIG_SHA="$(git -C "${AGENT_CONFIG_REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo missing)"
 cat > "${HOME}/.${AGENT}-identity" <<EOF
