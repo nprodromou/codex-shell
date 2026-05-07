@@ -62,11 +62,14 @@ EOF
 #   -p 7681      : listen port
 #   -t titleFixed: avoids leaking shell pid/host into the title
 #   -T xterm-256color : sane terminal
-#   bash -l      : login shell so .bashrc runs
+#
+# The shell command auto-launches codex on connect so the user lands
+# straight in the agent UI. If codex exits or crashes, we drop to an
+# interactive bash login so the pod isn't bricked.
 exec ttyd \
     --writable \
     --port 7681 \
     --terminal-type xterm-256color \
     --client-option titleFixed='codex-cli' \
     --client-option fontSize=14 \
-    bash -l
+    bash -lc 'codex; exec bash -l'
