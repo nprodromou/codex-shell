@@ -205,11 +205,24 @@ RUN set -eux; \
     op --version
 
 # Per-agent CLI install. Both are npm packages; the global install puts
-# `codex` or `claude` on PATH for the non-root user.
+# `codex` or `claude` on PATH for the non-root user. Versions are pinned
+# so a rebuild from the same commit produces the same agent CLI behavior.
+# Bump these in lockstep with intentional CLI upgrades.
+ARG CODEX_CLI_VERSION=0.129.0
+ARG CLAUDE_CLI_VERSION=2.1.132
 RUN case "$AGENT" in \
-      codex)  npm install -g @openai/codex ;; \
-      claude) npm install -g @anthropic-ai/claude-code ;; \
+      codex)  npm install -g "@openai/codex@${CODEX_CLI_VERSION}" ;; \
+      claude) npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" ;; \
     esac && npm cache clean --force
+
+# Record the resolved CLI versions in image metadata so a built image
+# advertises which agent CLI it shipped with — visible via
+# `docker inspect` and surfaced in the entrypoint startup banner.
+LABEL org.opencontainers.image.title="codex-shell-${AGENT}" \
+      com.prodromou.codex-shell.codex-cli-version="${CODEX_CLI_VERSION}" \
+      com.prodromou.codex-shell.claude-cli-version="${CLAUDE_CLI_VERSION}"
+ENV CODEX_CLI_VERSION=${CODEX_CLI_VERSION} \
+    CLAUDE_CLI_VERSION=${CLAUDE_CLI_VERSION}
 
 # Non-root user. uid/gid 1000, name = AGENT. Matching the AGENT name to
 # the user keeps PVC ownership obvious and avoids shell prompts that
