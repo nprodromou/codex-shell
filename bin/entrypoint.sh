@@ -97,10 +97,21 @@ claude)
     ;;
 esac
 
-# Sync managed config from a ConfigMap mounted at /etc/<agent>-config/.
+# Layer 1 — image-baked defaults at /etc/<agent>-defaults/.
+# Provide sensible defaults so a deployment without a ConfigMap still
+# gets a working runtime config. The ConfigMap overlay below wins on
+# any key it also sets. Today this carries the Codex sandbox/approval
+# baseline (see defaults/codex-config.toml; OPS-405).
+AGENT_DEFAULTS_DIR="/etc/${AGENT}-defaults"
+if [ -d "${AGENT_DEFAULTS_DIR}" ]; then
+    cp -fL "${AGENT_DEFAULTS_DIR}/." "${AGENT_CONFIG_DIR}/" 2>/dev/null || true
+    chmod -R u+w "${AGENT_CONFIG_DIR}" 2>/dev/null || true
+fi
+
+# Layer 2 — managed config from a ConfigMap mounted at /etc/<agent>-config/.
 # The ConfigMap (apk8s repo) is the source of truth for model/MCP config;
 # in-pod edits get blown away on restart. Stakater Reloader restarts the
-# pod when the ConfigMap changes.
+# pod when the ConfigMap changes. Per-deployment overrides go here.
 if [ -d "${AGENT_CONFIG_SOURCE}" ]; then
     # cp -L follows symlinks (configmap mounts are symlink farms).
     cp -fL "${AGENT_CONFIG_SOURCE}/." "${AGENT_CONFIG_DIR}/" 2>/dev/null || true
