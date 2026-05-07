@@ -18,6 +18,22 @@ set -euo pipefail
 : "${GIT_USER_NAME:=${AGENT^} CoWork}"
 : "${GIT_USER_EMAIL:=${AGENT}@prodromou.com}"
 
+# Workspace defense — if the PVC's contents have stale ownership
+# (e.g. pre-fsGroup pod created files as root), the agent user can't
+# clone or write here. We can't chown across uids without root, but we
+# can ensure ~/workspace exists, is owned by us, and is writable. Any
+# stale subdirs will still error if the agent tries to write under them
+# — the manifest carries fsGroupChangePolicy=Always to recursively
+# repair on next mount; this block is defense-in-depth.
+mkdir -p "${HOME}/workspace" 2>/dev/null || true
+if [ -w "${HOME}/workspace" ]; then
+    chmod u+rwX "${HOME}/workspace" || true
+else
+    echo "WARNING: ${HOME}/workspace is not writable. Falling back to /tmp/workspace." >&2
+    mkdir -p /tmp/workspace
+    cd /tmp/workspace
+fi
+
 # git identity + gh credential helper — set up early so the
 # agent-config clone below can use it for private-repo HTTPS auth.
 git config --global user.name  "${GIT_USER_NAME}"
