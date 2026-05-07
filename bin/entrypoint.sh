@@ -44,7 +44,11 @@ git config --global url."https://github.com/".insteadOf "git@github.com:"
 gh auth setup-git
 
 # Plane Gateway env (consumed by tools/scripts the user runs in-shell).
-export PLANE_GATEWAY_URL="${PLANE_GATEWAY_URL:-https://n8n.prodromou.com/webhook/plane-gateway-v21}"
+# v3 routes per-agent so Plane attribution stays correct; agents must
+# include `user: $AGENT` in every gateway request body. v2.1 stays as a
+# fallback for ~1 week post-rollout — set PLANE_GATEWAY_URL explicitly
+# in the pod env to override.
+export PLANE_GATEWAY_URL="${PLANE_GATEWAY_URL:-https://n8n.prodromou.com/webhook/plane-gateway-v3}"
 
 # Per-agent config + auth bootstrap. Each agent variant declares:
 #   AGENT_CONFIG_DIR    — where the agent CLI looks for config (~/.codex, ~/.claude)
