@@ -91,12 +91,23 @@ RUN set -eux; \
     rm -rf "/tmp/uv-${arch}-unknown-linux-gnu"; \
     uv --version; \
     uvx --version; \
-    # Pinned Python via uv (system-wide install path).
+    # Pinned Python via uv (system-wide install path); symlink the
+    # binary somewhere predictable so pipx / others can `--python` it.
     UV_PYTHON_INSTALL_DIR=/opt/python uv python install "${PYTHON_VERSION}"; \
-    ln -sf "$(UV_PYTHON_INSTALL_DIR=/opt/python uv python find ${PYTHON_VERSION})" /usr/local/bin/python3.14; \
-    # pipx + makejinja (used by apk8s template machinery).
+    PYTHON_BIN="$(find /opt/python -path '*/bin/python3.14' -type f -executable | head -1)"; \
+    test -x "${PYTHON_BIN}" || (echo "did not find python3.14 binary under /opt/python" >&2; exit 1); \
+    ln -sf "${PYTHON_BIN}" /usr/local/bin/python3.14; \
+    # pipx (kept on PATH for any user / script that wants it; uses system
+    # python3 by default — pass --python /usr/local/bin/python3.14 for
+    # tools that require >=3.12).
     pip3 install --no-cache-dir --break-system-packages "pipx==${PIPX_VERSION}"; \
-    PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install "makejinja==${MAKEJINJA_VERSION}"
+    pipx --version; \
+    # makejinja via uv (pipx's default 3.11 doesn't satisfy
+    # makejinja>=3.12 requirement; uv tool install + --python pins it
+    # cleanly without needing pipx flag dance).
+    UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin \
+        uv tool install --python "${PYTHON_VERSION}" "makejinja==${MAKEJINJA_VERSION}"; \
+    makejinja --version
 
 # Infra CLIs — apk8s/.mise.toml versions. Single-binary github releases
 # unless noted. Grouped into one RUN to keep layers tight; each tool
