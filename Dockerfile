@@ -96,7 +96,7 @@ RUN set -eux; \
     ln -sf "$(UV_PYTHON_INSTALL_DIR=/opt/python uv python find ${PYTHON_VERSION})" /usr/local/bin/python3.14; \
     # pipx + makejinja (used by apk8s template machinery).
     pip3 install --no-cache-dir --break-system-packages "pipx==${PIPX_VERSION}"; \
-    PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install --pip-args "--no-cache-dir" "makejinja==${MAKEJINJA_VERSION}"
+    PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install "makejinja==${MAKEJINJA_VERSION}"
 
 # Infra CLIs — apk8s/.mise.toml versions. Single-binary github releases
 # unless noted. Grouped into one RUN to keep layers tight; each tool
