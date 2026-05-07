@@ -164,11 +164,11 @@ RUN set -eux; \
     mv /tmp/age/age /tmp/age/age-keygen /usr/local/bin/; rm -rf /tmp/age; \
     age --version; age-keygen --version 2>&1 | head -1 || true; \
     # cue
-    curl -fsSL "https://github.com/cue-lang/cue/releases/download/${CUE_VERSION}/cue_${CUE_VERSION}_linux_${arch}.tar.gz" | tar -xz -C /tmp/cue.d; \
+    curl -fsSL "https://github.com/cue-lang/cue/releases/download/${CUE_VERSION}/cue_${CUE_VERSION}_linux_${arch}.tar.gz" | (mkdir -p /tmp/cue.d && tar -xz -C /tmp/cue.d); \
     mv /tmp/cue.d/cue /usr/local/bin/cue; rm -rf /tmp/cue.d; \
     cue version | head -2; \
     # task
-    curl -fsSL "https://github.com/go-task/task/releases/download/${TASK_VERSION}/task_linux_${arch}.tar.gz" | tar -xz -C /tmp/task.d; \
+    curl -fsSL "https://github.com/go-task/task/releases/download/${TASK_VERSION}/task_linux_${arch}.tar.gz" | (mkdir -p /tmp/task.d && tar -xz -C /tmp/task.d); \
     mv /tmp/task.d/task /usr/local/bin/task; rm -rf /tmp/task.d; \
     task --version; \
     # kustomize
@@ -176,16 +176,16 @@ RUN set -eux; \
     mv /tmp/kustomize /usr/local/bin/kustomize; \
     kustomize version; \
     # kubeconform
-    curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-${arch}.tar.gz" | tar -xz -C /tmp/kc.d; \
+    curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-${arch}.tar.gz" | (mkdir -p /tmp/kc.d && tar -xz -C /tmp/kc.d); \
     mv /tmp/kc.d/kubeconform /usr/local/bin/kubeconform; rm -rf /tmp/kc.d; \
     kubeconform -v; \
     # helmfile (releases tag is vX.Y.Z, asset name is helmfile_X.Y.Z_linux_amd64.tar.gz)
     HELMFILE_VER="${HELMFILE_VERSION#v}"; \
-    curl -fsSL "https://github.com/helmfile/helmfile/releases/download/${HELMFILE_VERSION}/helmfile_${HELMFILE_VER}_linux_${arch}.tar.gz" | tar -xz -C /tmp/hf.d; \
+    curl -fsSL "https://github.com/helmfile/helmfile/releases/download/${HELMFILE_VERSION}/helmfile_${HELMFILE_VER}_linux_${arch}.tar.gz" | (mkdir -p /tmp/hf.d && tar -xz -C /tmp/hf.d); \
     mv /tmp/hf.d/helmfile /usr/local/bin/helmfile; rm -rf /tmp/hf.d; \
     helmfile --version; \
     # talhelper
-    curl -fsSL "https://github.com/budimanjojo/talhelper/releases/download/${TALHELPER_VERSION}/talhelper_linux_${arch}.tar.gz" | tar -xz -C /tmp/th.d; \
+    curl -fsSL "https://github.com/budimanjojo/talhelper/releases/download/${TALHELPER_VERSION}/talhelper_linux_${arch}.tar.gz" | (mkdir -p /tmp/th.d && tar -xz -C /tmp/th.d); \
     mv /tmp/th.d/talhelper /usr/local/bin/talhelper; rm -rf /tmp/th.d; \
     talhelper --version; \
     # cilium-cli
