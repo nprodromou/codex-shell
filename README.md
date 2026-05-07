@@ -1,56 +1,81 @@
 # codex-shell
 
-Container image for running [OpenAI codex-cli](https://github.com/openai/codex)
-as a single, browser-accessible shell on Kubernetes — codex CLI exposed over
-ttyd, identity locked to a dedicated GitHub user, persistent home volume.
+Multi-agent browser shell image. One Dockerfile, two image variants —
+`codex` (OpenAI's [codex-cli](https://github.com/openai/codex)) and
+`claude` (Anthropic's [Claude Code](https://github.com/anthropics/claude-code))
+— each exposed over ttyd as a single, browser-accessible terminal on
+Kubernetes. Identity is locked to a dedicated GitHub user per agent;
+home directory persists on a PVC; canonical Nate-org instructions
+(from [`nprodromou/agent-config`](https://github.com/nprodromou/agent-config))
+are pulled at boot and symlinked into the agent's expected path.
 
-Cluster-agnostic: the image runs anywhere Kubernetes can pull from GHCR. The
-canonical deploy lives in `nprodromou/apk8s`, but nothing in the image is
-specific to that cluster.
+The repo name is a historical artifact — it started as codex-only and
+gained the claude variant later. Image content is cluster-agnostic; the
+canonical deploy lives in [`nprodromou/apk8s`](https://github.com/nprodromou/apk8s)
+under `kubernetes/apps/agents/{codex,claude}-cli`.
 
-## What it is
+`code-server` (VS Code in the browser) is intentionally **not** in this
+image — that's a separate concern tracked by WOVED-35.
 
-A long-running pod that exposes a `bash` shell with `codex` (and `gh`, `git`,
-`tmux`, etc.) on `PATH` over [ttyd](https://github.com/tsl0922/ttyd). Hit it
-from a browser and you get a terminal. Identity is locked to a dedicated
-GitHub user (`codex-prodromou` in the canonical deploy) so commits, PRs, and
-Plane tickets attribute deterministically — no more `gh auth` collisions with
-whichever identity a developer machine logged in last.
+## Images
 
-This image is the runtime; the cluster manifests for the canonical deploy
-live in [`nprodromou/apk8s` → `kubernetes/apps/agents/codex-cli`](https://github.com/nprodromou/apk8s).
+| Variant | Tag                                                | Agent CLI                |
+| ------- | -------------------------------------------------- | ------------------------ |
+| codex   | `ghcr.io/nprodromou/codex-shell:codex-latest`      | `@openai/codex`          |
+| claude  | `ghcr.io/nprodromou/codex-shell:claude-latest`     | `@anthropic-ai/claude-code` |
 
-`code-server` (VS Code in the browser) is intentionally **not** in this image
-— see WOVED-35 for that.
-
-## Image
-
-```
-ghcr.io/nprodromou/codex-shell:latest
-```
-
-Built by `.github/workflows/build.yml` on push to `main` or version tag.
+Both are built from the same `Dockerfile` via the `AGENT` build arg
+(`codex` or `claude`). The build matrix in `.github/workflows/build.yml`
+publishes both variants on every push to `main`. Per-commit tags follow
+the pattern `sha-XXXXX-{codex,claude}` for pinning.
 
 ## Runtime contract
 
-The entrypoint requires the following environment variables. They are mounted
-into the pod by an `ExternalSecret` that pulls from the deploy's 1Password
-vault (typically `Kubernetes`) per the canonical [Agent Secret Naming
-Convention](https://prodromou.atlassian.net/wiki/spaces/Operations/pages/63438850).
+The entrypoint requires the following environment variables. They are
+mounted into the pod by an `ExternalSecret` that pulls from the deploy's
+1Password vault (typically `Kubernetes`) per the canonical
+[Agent Secret Naming Convention](https://prodromou.atlassian.net/wiki/spaces/Operations/pages/63438850).
 
-| Env var          | 1Password reference                              | Purpose                                            |
-| ---------------- | ------------------------------------------------ | -------------------------------------------------- |
-| `GH_TOKEN`       | `op://Kubernetes/codex-github-pat/pat`           | GitHub PAT (`codex-prodromou`); used by `gh`       |
-| `CODEX_SESSION`  | `op://Kubernetes/codex-session/session`          | OpenAI Codex CLI auth blob                         |
-| `PLANE_TOKEN`    | `op://Kubernetes/codex-plane-token/token`        | Plane API key for `codex-prodromou` workspace user |
-| `GIT_USER_NAME`  | `op://Kubernetes/codex-github-pat/git_user_name` | Defaults to `Codex CoWork`                         |
-| `GIT_USER_EMAIL` | `op://Kubernetes/codex-github-pat/git_user_email` | Defaults to `codex@prodromou.com`                 |
+### Common (both agents)
 
-Optional:
+| Env var          | 1Password reference                                   | Purpose                                            |
+| ---------------- | ----------------------------------------------------- | -------------------------------------------------- |
+| `GH_TOKEN`       | `op://Kubernetes/${agent}-github-pat/pat`             | GitHub PAT (`${agent}-prodromou`); used by `gh`    |
+| `GIT_USER_NAME`  | `op://Kubernetes/${agent}-github-pat/git_user_name`   | Defaults to `${Agent} CoWork`                      |
+| `GIT_USER_EMAIL` | `op://Kubernetes/${agent}-github-pat/git_user_email`  | Defaults to `${agent}@prodromou.com`               |
+| `PLANE_TOKEN`    | `op://Kubernetes/${agent}-plane-token/token`          | Plane API key for the agent's workspace user       |
+
+### Codex-specific
+
+| Env var          | 1Password reference                       | Purpose                                                                          |
+| ---------------- | ----------------------------------------- | -------------------------------------------------------------------------------- |
+| `CODEX_SESSION`  | `op://Kubernetes/codex-session/session`   | OpenAI Codex CLI auth blob. Optional. Seeds `~/.codex/auth.json` on first boot. |
+
+### Claude-specific
+
+Claude Code uses interactive `/login` on first connect — no env-var
+session seed. Credentials persist on the PVC at `~/.claude/`.
+
+### Optional (both agents)
 
 | Env var             | Default                                                 |
 | ------------------- | ------------------------------------------------------- |
 | `PLANE_GATEWAY_URL` | `https://n8n.prodromou.com/webhook/plane-gateway-v21`   |
+
+## How a connect works
+
+1. ttyd accepts the browser connection and runs the configured shell command.
+2. Entrypoint has already wired `gh`, `git`, the agent's auth state, and
+   pulled the latest `nprodromou/agent-config` into `~/.agent-config`,
+   symlinking `instructions/CLAUDE.md` into:
+   - **codex:** `~/.codex/AGENTS.md`
+   - **claude:** `~/.claude/CLAUDE.md`
+3. The shell command attempts to resume the most recent session:
+   - **codex:** `codex resume --last`
+   - **claude:** `claude --continue`
+4. If no prior session exists, falls through to a fresh agent run.
+5. If the agent exits or crashes, drops to an interactive bash login so
+   the pod isn't bricked.
 
 ## Ports
 
@@ -60,31 +85,43 @@ Optional:
 
 ## Persistence
 
-The pod's `/home/codex` is backed by a Longhorn `ReadWriteOnce` PVC declared in
-the apk8s manifests. That gives you durable shell history, codex-cli session
-state, and any cloned repos under `~/workspace`.
+The pod's `/home/${AGENT}` is backed by a Longhorn `ReadWriteOnce` PVC
+declared in the apk8s manifests. That gives you durable shell history,
+agent session state, persisted auth tokens, and any cloned repos under
+`~/workspace`.
 
 ## Developing locally
 
 ```sh
-# Build
-docker build -t codex-shell:dev .
+# Build the codex variant.
+docker build -t codex-shell:codex --build-arg AGENT=codex .
+
+# Or the claude variant.
+docker build -t codex-shell:claude --build-arg AGENT=claude .
 
 # Run with the env vars the entrypoint expects.
 docker run --rm -it -p 7681:7681 \
   -e GH_TOKEN="$(gh auth token)" \
   -e GIT_USER_NAME="Local Test" \
   -e GIT_USER_EMAIL="$(git config user.email)" \
-  codex-shell:dev
+  codex-shell:codex
 ```
 
 Then open <http://localhost:7681>.
 
 ## Notes
 
-- The image runs as non-root `codex` (uid 1000).
+- Base is `debian:bookworm-slim`; Node 22 from NodeSource; `npm@latest`
+  installed on top because NodeSource lags upstream.
+- The image runs as non-root with the user named after the agent
+  (`codex` or `claude`), uid/gid 1000. Matches the Longhorn PVC owner so
+  volume mounts work cleanly.
 - `tini` is PID 1 so zombie reaping is handled.
-- `tmux` is preinstalled — start a session with `tmux` and your shell survives
-  closing the browser tab; `tmux attach` to reconnect.
-- `gh` uses `GH_TOKEN` automatically; no interactive `gh auth login` needed.
-- HTTPS clones via `gh` are seamless because `gh auth setup-git` runs at boot.
+- `tmux`, `bubblewrap` (codex sandbox prereq), `ripgrep`-equivalents,
+  `jq`, `vim`, etc. are preinstalled.
+- `gh` uses `GH_TOKEN` automatically; no interactive `gh auth login`
+  needed. HTTPS clones via `gh` are seamless because `gh auth setup-git`
+  runs at boot.
+- Updates to `nprodromou/agent-config` reach the pod on next restart
+  (entrypoint pulls and resets to `origin/main`); no image rebuild
+  needed for instruction changes.
