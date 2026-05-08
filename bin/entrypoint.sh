@@ -71,9 +71,13 @@ codex)
     AGENT_AUTH_FILE="${AGENT_CONFIG_DIR}/auth.json"
     # Codex looks for AGENTS.md as the global instructions file.
     INSTRUCTIONS_LINK="${AGENT_CONFIG_DIR}/AGENTS.md"
-    # Resume the last session; fall back to a fresh codex if there is
-    # none, then drop to bash if codex exits.
-    AGENT_LAUNCH_CMD='codex resume --last 2>/dev/null || codex; exec bash -l'
+    # Resume the last session, pinned to the persistent workspace dir,
+    # with codex's internal sandbox + approvals bypassed (the apk8s pod
+    # boundary is the real security boundary; the inner bwrap sandbox
+    # fails on hardened k8s and just produces approval-prompt noise).
+    # Fall back to a fresh codex if no last session, then drop to bash
+    # if codex exits.
+    AGENT_LAUNCH_CMD='codex resume --last -C "$HOME/workspace" --dangerously-bypass-approvals-and-sandbox 2>/dev/null || codex -C "$HOME/workspace" --dangerously-bypass-approvals-and-sandbox; exec bash -l'
 
     mkdir -p "${AGENT_CONFIG_DIR}"
 
