@@ -204,6 +204,51 @@ RUN set -eux; \
     unzip -d /tmp/op /tmp/op.zip; mv /tmp/op/op /usr/local/bin/op; rm -rf /tmp/op /tmp/op.zip; \
     op --version
 
+# ----------------------------------------------------------------------
+# Cloud CLIs — AWS CLI v2 + Azure CLI (WOVED-50).
+#
+# Both are needed by Phase 1 worker pods that execute infra runbooks
+# (sandbox deploys, helm installs, ECR pushes, etc.) per WOVED-67's
+# non-interactive credential design. Pinning to specific versions for
+# image reproducibility — bump in lockstep with apk8s/.mise.toml when
+# either CLI advances.
+#
+# AWS CLI v2 ships official prebuilt binaries; Azure CLI rides on top
+# of Microsoft's Debian apt repo, which keeps Python deps + extension
+# isolation handled upstream rather than us pinning a specific
+# python/azure-cli compatibility matrix.
+# ----------------------------------------------------------------------
+ARG AWS_CLI_VERSION=2.18.0
+ARG AZ_CLI_VERSION=2.66.0
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    # ----- AWS CLI v2 (official zip) -----
+    case "$arch" in \
+      amd64) aws_arch="x86_64" ;; \
+      arm64) aws_arch="aarch64" ;; \
+      *) echo "unsupported arch for aws-cli: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}-${AWS_CLI_VERSION}.zip" \
+      -o /tmp/awscliv2.zip; \
+    unzip -q /tmp/awscliv2.zip -d /tmp; \
+    /tmp/aws/install -i /usr/local/aws-cli -b /usr/local/bin; \
+    rm -rf /tmp/aws /tmp/awscliv2.zip; \
+    aws --version; \
+    # ----- Azure CLI (Microsoft apt repo) -----
+    # Microsoft signing key + bookworm repo. Pinned to the apt-versioned
+    # tag (X.Y.Z-1~bookworm) so layer caching + image reproducibility
+    # both work.
+    install -m 0755 -d /etc/apt/keyrings; \
+    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+      | gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg; \
+    chmod a+r /etc/apt/keyrings/microsoft.gpg; \
+    echo "deb [arch=${arch} signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ bookworm main" \
+      > /etc/apt/sources.list.d/azure-cli.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends "azure-cli=${AZ_CLI_VERSION}-1~bookworm"; \
+    rm -rf /var/lib/apt/lists/*; \
+    az --version | head -1
+
 # Per-agent CLI install. Both are npm packages; the global install puts
 # `codex` or `claude` on PATH for the non-root user.
 RUN case "$AGENT" in \
