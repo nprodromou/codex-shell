@@ -1,0 +1,37 @@
+# Default Codex CLI runtime config for the codex-shell pod.
+#
+# Layered with /etc/codex-config (apk8s ConfigMap) at entrypoint time —
+# image defaults are applied first, then the ConfigMap overlay wins on
+# any key it sets. So this file is the baseline; per-deployment tweaks
+# go in apk8s.
+#
+# Why these values:
+#
+# - `sandbox_mode = "danger-full-access"`: the pod itself is the
+#   security boundary (non-root user, restricted RBAC, PVC isolation).
+#   Codex's internal bubblewrap layer is redundant in this deployment
+#   and was failing on `bwrap: No permissions to create new namespace`
+#   in apk8s pods that don't allow unprivileged user namespaces (most
+#   hardened k8s clusters). Disabling the inner sandbox means commands
+#   no longer escalate-on-bwrap-failure for every read.
+#
+# - `approval_policy = "on-failure"`: with the inner sandbox off, no
+#   sandbox-failure escalations happen. The user only gets prompted
+#   when a command genuinely fails. Combined with full-access this is
+#   functionally "no per-command prompts" — appropriate for a trusted
+#   agent pod, not for an unrestricted user shell.
+#
+# - The `[projects."/home/codex/workspace"]` trust entry mirrors what
+#   the live config already had (per OPS-405 description) and makes
+#   the trust explicit at image-default level.
+#
+# To tighten later (e.g., re-enable inner sandbox once unprivileged
+# user-namespace-clone is enabled at the kubelet/sysctl level), set
+# `sandbox_mode = "workspace-write"` in the apk8s ConfigMap; this
+# baseline doesn't need to change.
+
+sandbox_mode   = "danger-full-access"
+approval_policy = "on-failure"
+
+[projects."/home/codex/workspace"]
+trust_level = "trusted"

@@ -219,6 +219,17 @@ RUN groupadd -g 1000 ${AGENT} \
     && mkdir -p /home/${AGENT}/.config /home/${AGENT}/workspace \
     && chown -R ${AGENT}:${AGENT} /home/${AGENT}
 
+# Per-agent default config baseline. Copied into /etc/<agent>-defaults/
+# at build time; the entrypoint applies these BEFORE the ConfigMap
+# overlay at /etc/<agent>-config/, so a deployment without a ConfigMap
+# still gets sensible runtime config and the ConfigMap only needs to
+# carry the deltas.
+RUN mkdir -p "/etc/${AGENT}-defaults"
+COPY defaults/ /etc/defaults-staging/
+RUN if [ -f "/etc/defaults-staging/${AGENT}-config.toml" ]; then \
+      cp "/etc/defaults-staging/${AGENT}-config.toml" "/etc/${AGENT}-defaults/config.toml"; \
+    fi && rm -rf /etc/defaults-staging
+
 # Entrypoint + bash profile.
 COPY --chmod=0755 bin/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY --chown=${AGENT}:${AGENT} profile/.bashrc    /home/${AGENT}/.bashrc
