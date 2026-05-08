@@ -204,6 +204,35 @@ RUN set -eux; \
     unzip -d /tmp/op /tmp/op.zip; mv /tmp/op/op /usr/local/bin/op; rm -rf /tmp/op /tmp/op.zip; \
     op --version
 
+# ----------------------------------------------------------------------
+# Cloud CLIs — Azure CLI (apt) + AWS CLI v2 (zip). amd64-only matches
+# the build matrix in .github/workflows/build.yml. Phase 1 worker
+# images (WOVED-51) inherit these so workers can run sandbox deploys
+# and ECR pushes without a per-image rebuild.
+# ----------------------------------------------------------------------
+ARG AZURE_CLI_VERSION=2.66.0
+ARG AWS_CLI_VERSION=2.18.0
+RUN set -eux; \
+    # Azure CLI via Microsoft apt repo.
+    install -m 0755 -d /etc/apt/keyrings; \
+    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+      | gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg; \
+    chmod 644 /etc/apt/keyrings/microsoft.gpg; \
+    AZ_REPO="$(. /etc/os-release && echo "$VERSION_CODENAME")"; \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ ${AZ_REPO} main" \
+      > /etc/apt/sources.list.d/azure-cli.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends "azure-cli=${AZURE_CLI_VERSION}-1~${AZ_REPO}"; \
+    rm -rf /var/lib/apt/lists/*; \
+    az --version | head -1; \
+    # AWS CLI v2 via official zip bundle.
+    aws_arch="$(uname -m)"; \
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}-${AWS_CLI_VERSION}.zip" -o /tmp/awscliv2.zip; \
+    unzip -q /tmp/awscliv2.zip -d /tmp; \
+    /tmp/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli; \
+    rm -rf /tmp/awscliv2.zip /tmp/aws; \
+    aws --version
+
 # Per-agent CLI install. Both are npm packages; the global install puts
 # `codex` or `claude` on PATH for the non-root user.
 RUN case "$AGENT" in \
