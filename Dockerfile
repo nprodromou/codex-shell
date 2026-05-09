@@ -287,6 +287,12 @@ COPY --chmod=0755 bin/entrypoint.sh /usr/local/bin/entrypoint.sh
 # Worker mode (WOVED-126): headless task execution path. The entrypoint
 # dispatches to this when AGENT_MODE=worker; ttyd is bypassed entirely.
 COPY --chmod=0755 bin/worker.py /usr/local/bin/worker.py
+# Slot OAuth init mode (WOVED-126): operator-driven device-code dance.
+# The entrypoint dispatches to this when AGENT_MODE=auth-init; one-shot
+# init pod that exits once the slot's PVC carries valid auth state.
+# Per-slot bearer token (WOVED-128) authenticates callbacks to the
+# Manager — see bin/auth_init.py.
+COPY --chmod=0755 bin/auth_init.py /usr/local/bin/auth_init.py
 COPY --chown=${AGENT}:${AGENT} profile/.bashrc    /home/${AGENT}/.bashrc
 COPY --chown=${AGENT}:${AGENT} profile/.tmux.conf /home/${AGENT}/.tmux.conf
 
