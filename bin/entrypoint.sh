@@ -205,6 +205,11 @@ EOF
 #                                        exits. Spawned by woveD Manager
 #                                        as an ephemeral Job per task.
 #
+#   AGENT_MODE=auth-init              —  one-shot slot OAuth provisioning.
+#                                        Drives `claude /login` under
+#                                        operator supervision via Manager
+#                                        callback (per-slot bearer token).
+#
 # Future modes (WOVED-126 follow-up): `auth-init` for slot OAuth provisioning.
 AGENT_MODE="${AGENT_MODE:-interactive}"
 
@@ -216,6 +221,20 @@ worker)
     # worker-job.yaml): WOVED_TASK_ID, WOVED_TASK_SOURCE_NAME,
     # WOVED_TASK_AGENT, WOVED_MANAGER_CALLBACK_URL.
     exec /usr/local/bin/worker.py
+    ;;
+auth-init)
+    # Slot OAuth provisioning (WOVED-126). One-shot init pod that
+    # drives `claude /login` under operator supervision: surfaces
+    # the OAuth URL via Manager callback, polls for the operator-
+    # submitted code, pipes it into the running CLI, exits 0 once
+    # auth state lands on the slot's PVC. Required env vars:
+    #   WOVED_SLOT_ID                 — e.g. "claude-1"
+    #   WOVED_TASK_AGENT              — currently must be "claude"
+    #   WOVED_MANAGER_CALLBACK_URL    — Manager's slot auth-init base URL
+    #   WOVED_SLOT_INIT_TOKEN         — per-slot bearer token (WOVED-128)
+    # Optional: WOVED_AUTH_INIT_TIMEOUT_S (default 1800),
+    #           WOVED_AUTH_INIT_POLL_S (default 2).
+    exec /usr/local/bin/auth_init.py
     ;;
 interactive)
     # ttyd flags:
@@ -236,7 +255,7 @@ interactive)
         bash -lc "${AGENT_LAUNCH_CMD}"
     ;;
 *)
-    echo "FATAL: unknown AGENT_MODE=${AGENT_MODE} (expected interactive|worker)" >&2
+    echo "FATAL: unknown AGENT_MODE=${AGENT_MODE} (expected interactive|worker|auth-init)" >&2
     exit 1
     ;;
 esac
