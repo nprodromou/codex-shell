@@ -1,0 +1,55 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "timezone": "America/Los_Angeles",
+  "schedule": ["before 6am on Monday"],
+  "labels": ["renovate"],
+  "prHourlyLimit": 4,
+  "prConcurrentLimit": 8,
+  "rebaseWhen": "behind-base-branch",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track ARG <NAME>_VERSION=<value> lines in the Dockerfile when annotated with a # renovate: datasource/depName comment on the previous line.",
+      "fileMatch": ["(^|/)Dockerfile$"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>[a-z-]+?)\\s+depName=(?<depName>\\S+?)(?:\\s+versioning=(?<versioning>\\S+?))?(?:\\s+extractVersion=(?<extractVersion>\\S+?))?\\s*\\n\\s*ARG\\s+\\S+?_VERSION=(?<currentValue>\\S+)"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Auto-merge patch bumps for the agent CLIs — these ship rapidly and patches are routine.",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": ["@anthropic-ai/claude-code", "@openai/codex"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true,
+      "automergeType": "branch"
+    },
+    {
+      "description": "Agent CLI minor + major bumps land as individual PRs for human review.",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": ["@anthropic-ai/claude-code", "@openai/codex"],
+      "matchUpdateTypes": ["minor", "major"],
+      "automerge": false
+    },
+    {
+      "description": "Group base image (debian-slim, node) bumps into a single monthly PR — these tend to land together and we don't want chatty per-image PRs.",
+      "matchManagers": ["dockerfile"],
+      "matchDepNames": ["debian", "node", "nodesource/setup_22.x"],
+      "groupName": "base images",
+      "schedule": ["before 6am on the first day of the month"]
+    },
+    {
+      "description": "Toolchain bumps (kubectl, helm, flux, etc.) land as individual PRs — these can break unrelated workflows and shouldn't be batched.",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": ["!@anthropic-ai/claude-code", "!@openai/codex"],
+      "automerge": false,
+      "groupName": null
+    }
+  ]
+}

@@ -250,10 +250,17 @@ RUN set -eux; \
     az --version | head -1
 
 # Per-agent CLI install. Both are npm packages; the global install puts
-# `codex` or `claude` on PATH for the non-root user.
+# `codex` or `claude` on PATH for the non-root user. Pinned so Renovate
+# can auto-PR patch bumps (see renovate.json) — without a pin every
+# build pulls latest, which is non-reproducible and skips the patch
+# auto-merge gate.
+# renovate: datasource=npm depName=@anthropic-ai/claude-code
+ARG CLAUDE_CODE_VERSION=2.1.133
+# renovate: datasource=npm depName=@openai/codex
+ARG OPENAI_CODEX_VERSION=0.129.0
 RUN case "$AGENT" in \
-      codex)  npm install -g @openai/codex ;; \
-      claude) npm install -g @anthropic-ai/claude-code ;; \
+      codex)  npm install -g "@openai/codex@${OPENAI_CODEX_VERSION}" ;; \
+      claude) npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" ;; \
     esac && npm cache clean --force
 
 # Non-root user. uid/gid 1000, name = AGENT. Matching the AGENT name to
