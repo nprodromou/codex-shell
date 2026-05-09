@@ -306,6 +306,12 @@ COPY --chmod=0755 bin/worker.py /usr/local/bin/worker.py
 # Per-slot bearer token (WOVED-128) authenticates callbacks to the
 # Manager — see bin/auth_init.py.
 COPY --chmod=0755 bin/auth_init.py /usr/local/bin/auth_init.py
+# Smoke-test mode (WOVED-147): startup probe that verifies the CLI binary
+# works + credentials are present and parseable. Entrypoint dispatches to
+# this when AGENT_MODE=smoke-test; structured exit codes (64/65/66) tell
+# the Manager which recovery path to take. No network calls — safe on
+# every kubernetes startupProbe tick.
+COPY --chmod=0755 bin/smoke_test.py /usr/local/bin/smoke_test.py
 COPY --chown=${AGENT}:${AGENT} profile/.bashrc    /home/${AGENT}/.bashrc
 COPY --chown=${AGENT}:${AGENT} profile/.tmux.conf /home/${AGENT}/.tmux.conf
 
