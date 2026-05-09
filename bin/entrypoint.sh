@@ -191,19 +191,52 @@ ${AGENT^} CLI    : $(${AGENT} --version 2>/dev/null || echo unknown)
 agent-config : ${AGENT_CONFIG_SHA}
 EOF
 
-# ttyd flags:
-#   --writable             : input enabled
-#   --port 7681            : listen port
-#   titleFixed             : avoids leaking shell pid/host into the title
-#   --terminal-type        : sane terminal
+# Mode switch (WOVED-126).
 #
-# AGENT_LAUNCH_CMD auto-resumes the agent's last session. If no session
-# exists, falls back to a fresh agent run. If the agent exits or
-# crashes, drops to an interactive bash login so the pod isn't bricked.
-exec ttyd \
-    --writable \
-    --port 7681 \
-    --terminal-type xterm-256color \
-    --client-option titleFixed="${AGENT}-cli" \
-    --client-option fontSize=14 \
-    bash -lc "${AGENT_LAUNCH_CMD}"
+#   AGENT_MODE=interactive (default)  —  ttyd-wrapped REPL on :7681. The
+#                                        long-lived claude-cli/codex-cli
+#                                        pods on apk8s use this. Operator
+#                                        drives via browser shell.
+#
+#   AGENT_MODE=worker                 —  one-shot headless task execution.
+#                                        Reads task from Manager callback,
+#                                        runs `claude -p / codex exec` with
+#                                        permission bypass, posts result,
+#                                        exits. Spawned by woveD Manager
+#                                        as an ephemeral Job per task.
+#
+# Future modes (WOVED-126 follow-up): `auth-init` for slot OAuth provisioning.
+AGENT_MODE="${AGENT_MODE:-interactive}"
+
+case "$AGENT_MODE" in
+worker)
+    # Headless task execution. worker.py reads task details, invokes
+    # the agent CLI, posts back via Manager callback, exits with the
+    # agent's return code. Required env vars (set by chart's
+    # worker-job.yaml): WOVED_TASK_ID, WOVED_TASK_SOURCE_NAME,
+    # WOVED_TASK_AGENT, WOVED_MANAGER_CALLBACK_URL.
+    exec /usr/local/bin/worker.py
+    ;;
+interactive)
+    # ttyd flags:
+    #   --writable             : input enabled
+    #   --port 7681            : listen port
+    #   titleFixed             : avoids leaking shell pid/host into the title
+    #   --terminal-type        : sane terminal
+    #
+    # AGENT_LAUNCH_CMD auto-resumes the agent's last session. If no session
+    # exists, falls back to a fresh agent run. If the agent exits or
+    # crashes, drops to an interactive bash login so the pod isn't bricked.
+    exec ttyd \
+        --writable \
+        --port 7681 \
+        --terminal-type xterm-256color \
+        --client-option titleFixed="${AGENT}-cli" \
+        --client-option fontSize=14 \
+        bash -lc "${AGENT_LAUNCH_CMD}"
+    ;;
+*)
+    echo "FATAL: unknown AGENT_MODE=${AGENT_MODE} (expected interactive|worker)" >&2
+    exit 1
+    ;;
+esac
