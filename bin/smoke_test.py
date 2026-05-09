@@ -51,15 +51,39 @@ from pathlib import Path
 
 # ---- Per-agent paths + binaries ----
 
-# Where each agent CLI persists its OAuth credentials. These are the
-# paths the upstream CLIs write at /login time; nothing in this script
-# manipulates the format itself, just verifies presence + parseability.
-_CRED_PATHS: dict[str, Path] = {
-    "claude": Path.home() / ".claude" / "credentials.json",
-    # Codex CLI (OpenAI) writes to ~/.codex/auth.json, set by the
-    # entrypoint's CODEX_SESSION → file write at first boot.
-    "codex": Path.home() / ".codex" / "auth.json",
-}
+# Each agent has its own credential-detection strategy because the
+# upstream CLIs disagree about how stable their credential filenames
+# are:
+#
+#   claude  — Claude Code's exact credential filename is NOT stable
+#             across CLI versions. auth_init.py deliberately uses a
+#             snapshot-diff over the entire ~/.claude/ tree to detect
+#             "auth happened" without pinning a path. Smoke test
+#             matches that model: walk ~/.claude/ for any non-symlink
+#             regular file outside the pre-populated baseline. Codex
+#             cross-review of the first cut (codex-shell#21) caught
+#             that pinning `~/.claude/credentials.json` would
+#             permanently false-fail healthy slots whose CLI wrote to
+#             e.g. `~/.claude/.credentials/session.json`.
+#   codex   — Codex CLI pins ~/.codex/auth.json; the entrypoint also
+#             writes there from CODEX_SESSION at first boot. Stable
+#             contract; check the path directly.
+
+_CLAUDE_HOME: Path = Path.home() / ".claude"
+_CODEX_AUTH_PATH: Path = Path.home() / ".codex" / "auth.json"
+
+# Files under ~/.claude/ that the entrypoint pre-populates BEFORE the
+# OAuth flow runs. Their presence does NOT prove the slot is auth'd;
+# only artifacts beyond this set count. Sourced empirically from
+# codex-shell's entrypoint (CLAUDE.md is a symlink to agent-config;
+# config.toml comes from /etc/claude-defaults/ when present).
+# Symlinks are filtered separately — this set guards file artifacts
+# that the entrypoint may copy in even when the symlink path is taken.
+_CLAUDE_BASELINE_NAMES: frozenset[str] = frozenset({
+    "CLAUDE.md",
+    "config.toml",
+    "settings.json",
+})
 
 # CLI binary name on PATH for each agent. `--version` is the cheapest
 # call that proves the binary loads (exits 0 with a version string).
@@ -119,22 +143,12 @@ def _check_cli_binary(agent: str) -> tuple[bool, str]:
     return True, proc.stdout.strip().splitlines()[0] if proc.stdout else ""
 
 
-def _check_credentials(agent: str) -> tuple[int, str, dict[str, object]]:
-    """Return (exit_code, message, diagnostic_fields).
-
-    The credential file's exact schema is the upstream CLI's concern
-    — we only verify it's present, non-empty, and parses as JSON. The
-    JSON parse is the cheapest "format sanity" check; if the upstream
-    CLI ever switches to a binary format we can rev this, but that's
-    exactly the kind of change WOVED-147 case #4 is designed to catch.
-
-    Returns 0 on healthy, _EXIT_CREDS_MISSING / _EXIT_CREDS_INVALID
-    otherwise, with `diagnostic_fields` carrying any signal worth
-    surfacing to the operator in the re-auth ticket (file size, mtime,
-    parse error message)."""
-    cred_path = _CRED_PATHS.get(agent)
-    if cred_path is None:
-        return _EXIT_CREDS_MISSING, f"no credential path mapped for agent {agent!r}", {}
+def _check_codex_credentials() -> tuple[int, str, dict[str, object]]:
+    """Codex CLI pins ~/.codex/auth.json. The entrypoint also writes
+    it from CODEX_SESSION at first boot. Stable contract — check the
+    path directly, parse as JSON, surface size + parse-error in the
+    diagnostic so the operator's re-auth ticket has signal."""
+    cred_path = _CODEX_AUTH_PATH
 
     if not cred_path.exists():
         return _EXIT_CREDS_MISSING, f"credentials file missing at {cred_path}", {
@@ -144,9 +158,9 @@ def _check_credentials(agent: str) -> tuple[int, str, dict[str, object]]:
     try:
         size = cred_path.stat().st_size
     except OSError as exc:
-        # Permission denied here usually means uid mismatch (the WOVED-147
-        # case #3 the build-time pin is supposed to prevent). Surface
-        # that distinction in the diagnostic.
+        # Permission denied here usually means uid mismatch (the
+        # WOVED-147 case #3 the build-time pin is supposed to prevent).
+        # Surface that distinction in the diagnostic.
         return _EXIT_CREDS_INVALID, f"stat({cred_path}) failed: {exc}", {
             "path": str(cred_path),
             "errno": getattr(exc, "errno", None),
@@ -176,6 +190,94 @@ def _check_credentials(agent: str) -> tuple[int, str, dict[str, object]]:
         "path": str(cred_path),
         "size": size,
     }
+
+
+def _check_claude_credentials() -> tuple[int, str, dict[str, object]]:
+    """Claude Code's credential filename is NOT stable across CLI
+    versions — auth_init.py uses a snapshot-diff over the entire
+    ~/.claude/ tree to detect "auth happened" without pinning a path.
+    Smoke test matches that model: walk the tree for any non-symlink
+    regular file outside the entrypoint's pre-populated baseline. If
+    any candidate exists, the slot has been initialized.
+
+    Codex cross-review of codex-shell#21 caught the original pinned-
+    path implementation false-failing on slots whose CLI wrote to e.g.
+    `~/.claude/.credentials/session.json` — the exact failure mode the
+    auth_init.py snapshot-diff comment warns about.
+
+    No JSON parse here: the snapshot-diff approach in auth_init.py
+    deliberately doesn't parse either, because the format may differ
+    across CLI versions and a parse-failure on a real-but-unfamiliar
+    artifact would be a worse failure than a false-pass on a corrupt
+    one (which the next real task would catch immediately)."""
+    if not _CLAUDE_HOME.is_dir():
+        return _EXIT_CREDS_MISSING, f"credentials dir missing at {_CLAUDE_HOME}", {
+            "path": str(_CLAUDE_HOME),
+        }
+
+    candidates: list[Path] = []
+    try:
+        for root, _dirs, files in os.walk(_CLAUDE_HOME, followlinks=False):
+            for name in files:
+                full = Path(root) / name
+                # Skip symlinks — CLAUDE.md is a symlink to agent-config
+                # that the entrypoint pre-populates. Same skip the
+                # auth_init.py snapshot-diff does, same reason.
+                try:
+                    st = full.lstat()
+                except OSError:
+                    continue
+                import stat as _stat
+
+                if _stat.S_ISLNK(st.st_mode):
+                    continue
+                # Skip well-known baseline names that the entrypoint
+                # may copy in even without auth-init having ever run.
+                if name in _CLAUDE_BASELINE_NAMES:
+                    continue
+                candidates.append(full)
+    except OSError as exc:
+        # Permission denied at the directory level usually means uid
+        # mismatch (WOVED-147 case #3) — same diagnostic shape as the
+        # Codex stat() failure path so the Manager's dispatch table
+        # treats them uniformly.
+        return _EXIT_CREDS_INVALID, f"walk({_CLAUDE_HOME}) failed: {exc}", {
+            "path": str(_CLAUDE_HOME),
+            "errno": getattr(exc, "errno", None),
+        }
+
+    if not candidates:
+        return _EXIT_CREDS_MISSING, (
+            f"no non-baseline files found under {_CLAUDE_HOME} — "
+            "slot has not run auth-init yet"
+        ), {
+            "path": str(_CLAUDE_HOME),
+            "baseline_skipped": sorted(_CLAUDE_BASELINE_NAMES),
+        }
+
+    # At least one credential-bearing artifact exists. Surface the
+    # candidate paths in the diagnostic so the Manager + operator can
+    # see what's there without needing to kubectl exec into the pod.
+    relpaths = sorted(str(p.relative_to(_CLAUDE_HOME)) for p in candidates)
+    return _EXIT_OK, (
+        f"{len(candidates)} non-baseline file(s) under {_CLAUDE_HOME}: "
+        f"{relpaths[:5]}"
+        + (f" (+{len(candidates) - 5} more)" if len(candidates) > 5 else "")
+    ), {
+        "path": str(_CLAUDE_HOME),
+        "artifact_count": len(candidates),
+        "artifacts": relpaths[:10],
+    }
+
+
+def _check_credentials(agent: str) -> tuple[int, str, dict[str, object]]:
+    """Per-agent dispatch. claude uses snapshot-diff-style walk;
+    codex uses pinned path. See module docstring + each helper."""
+    if agent == "claude":
+        return _check_claude_credentials()
+    if agent == "codex":
+        return _check_codex_credentials()
+    return _EXIT_CREDS_MISSING, f"no credential check mapped for agent {agent!r}", {}
 
 
 def main() -> int:
