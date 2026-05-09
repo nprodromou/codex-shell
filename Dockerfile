@@ -263,11 +263,24 @@ RUN case "$AGENT" in \
       claude) npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" ;; \
     esac && npm cache clean --force
 
-# Non-root user. uid/gid 1000, name = AGENT. Matching the AGENT name to
-# the user keeps PVC ownership obvious and avoids shell prompts that
-# lie about which agent is running.
-RUN groupadd -g 1000 ${AGENT} \
-    && useradd -m -u 1000 -g 1000 -s /bin/bash ${AGENT} \
+# Non-root user. uid/gid 10001, name = AGENT.
+#
+# DO NOT bump uid/gid casually (WOVED-147). The slot OAuth init flow
+# writes auth state to a PersistentVolumeClaim mounted at /home/${AGENT}.
+# That PVC outlives any single pod — when the chart's pinned image tag
+# rolls forward (Renovate, WOVED-148), kubernetes recreates the pod
+# with the new image. If the new image's user has a different uid/gid,
+# the new pod silently can't read its own credentials.json (file
+# ownership is by uid, not username) and the operator sees the OAuth
+# dance prompt re-fire on every task.
+#
+# 10001 picked to align with the woved worker images (which already
+# baked it in) and to avoid colliding with the typical uid=1000
+# first-user on host machines if an operator ever bind-mounts a path.
+# Username stays AGENT for kubectl-exec UX (`whoami` reports the
+# agent identity), but the load-bearing invariant is the uid/gid pin.
+RUN groupadd -g 10001 ${AGENT} \
+    && useradd -m -u 10001 -g 10001 -s /bin/bash ${AGENT} \
     && mkdir -p /home/${AGENT}/.config /home/${AGENT}/workspace \
     && chown -R ${AGENT}:${AGENT} /home/${AGENT}
 
