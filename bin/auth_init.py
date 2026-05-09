@@ -306,40 +306,87 @@ def _drive_login() -> int:
             pass
 
 
-def _verify_auth_landed() -> bool:
-    """Sanity-check that ~/.claude/ now has auth state. The exact
-    file(s) Claude Code writes vary across versions; we accept any
-    non-empty presence under ~/.claude/ that wasn't there before init.
+def _snapshot_claude_dir() -> dict[str, tuple[int, float]]:
+    """Return a snapshot of ~/.claude/ contents: {relpath: (size, mtime)}.
 
-    TODO(WOVED-126): tighten this once we know the exact filenames
-    (likely `credentials.json` or similar). For now, presence of any
-    file under ~/.claude/ that isn't the symlinked CLAUDE.md
-    instructions file is treated as success."""
+    WOVED-131: the entrypoint pre-populates ~/.claude/ from
+    image-baked defaults + the agent-config CLAUDE.md symlink BEFORE
+    AGENT_MODE=auth-init runs. A naive "any file under ~/.claude/
+    means success" check would false-positive even when claude exits
+    without writing real credentials. The fix is to snapshot
+    before + after the login dance and assert the after-set differs
+    from the before-set (new files OR existing files with changed
+    size/mtime). Symlinks are excluded — CLAUDE.md is a stable
+    symlink to agent-config that would otherwise show false
+    differences across runs."""
     claude_dir = os.path.expanduser("~/.claude")
+    snapshot: dict[str, tuple[int, float]] = {}
     if not os.path.isdir(claude_dir):
-        return False
-    for entry in os.listdir(claude_dir):
-        path = os.path.join(claude_dir, entry)
-        if os.path.islink(path):
-            continue  # CLAUDE.md is a symlink to agent-config
-        if os.path.isfile(path) and os.path.getsize(path) > 0:
-            return True
-        if os.path.isdir(path):
-            for _ in os.listdir(path):
-                return True
+        return snapshot
+    for root, dirs, files in os.walk(claude_dir, followlinks=False):
+        # Skip the dir itself if it's a symlink (defense in depth).
+        for name in files:
+            full = os.path.join(root, name)
+            try:
+                st = os.lstat(full)
+            except OSError:
+                continue
+            # Skip symlinks — CLAUDE.md is a symlink to agent-config
+            # that mtime-jitters on every boot.
+            import stat as _stat
+            if _stat.S_ISLNK(st.st_mode):
+                continue
+            rel = os.path.relpath(full, claude_dir)
+            snapshot[rel] = (st.st_size, st.st_mtime)
+    return snapshot
+
+
+def _verify_new_auth_artifacts(
+    before: dict[str, tuple[int, float]],
+    after: dict[str, tuple[int, float]],
+) -> bool:
+    """True iff `after` contains real evidence of a successful login —
+    a file that wasn't in `before`, OR an existing file whose size/mtime
+    changed. Catches the WOVED-131 false-positive where pre-populated
+    config files would otherwise pass a naive presence check.
+
+    A successful Claude Code OAuth login writes credentials to
+    ~/.claude/ (exact filename TBD per CLI version — typically
+    something like `credentials.json` or `.credentials/`). The
+    snapshot-diff approach is robust to that uncertainty: anything
+    new or modified relative to the pre-login state counts."""
+    new_files = set(after) - set(before)
+    if new_files:
+        print(f"auth-init: new file(s) under ~/.claude/: {sorted(new_files)}", file=sys.stderr)
+        return True
+    modified = [
+        rel
+        for rel in set(after) & set(before)
+        if after[rel] != before[rel]
+    ]
+    if modified:
+        print(f"auth-init: modified file(s) under ~/.claude/: {sorted(modified)}", file=sys.stderr)
+        return True
     return False
 
 
 def main() -> int:
     _validate_env()
+    # WOVED-131: snapshot ~/.claude/ before the login dance so the
+    # post-login verify can prove that real credential files appeared
+    # (vs. just the entrypoint's pre-populated defaults).
+    before = _snapshot_claude_dir()
     rc = _drive_login()
     if rc != 0:
         print(f"auth-init: agent exited non-zero ({rc})", file=sys.stderr)
         return rc
-    if not _verify_auth_landed():
+    after = _snapshot_claude_dir()
+    if not _verify_new_auth_artifacts(before, after):
         print(
-            "auth-init: agent exited 0 but no auth state found under ~/.claude/ — "
-            "treating as failure",
+            "auth-init: agent exited 0 but no NEW or MODIFIED files under "
+            "~/.claude/ — treating as failure (entrypoint pre-populates "
+            "defaults; WOVED-131 requires that the login dance produce "
+            "evidence beyond what was already there)",
             file=sys.stderr,
         )
         return 1
