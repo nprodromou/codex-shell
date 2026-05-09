@@ -284,6 +284,9 @@ RUN if [ -f "/etc/defaults-staging/${AGENT}-config.toml" ]; then \
 
 # Entrypoint + bash profile.
 COPY --chmod=0755 bin/entrypoint.sh /usr/local/bin/entrypoint.sh
+# Worker mode (WOVED-126): headless task execution path. The entrypoint
+# dispatches to this when AGENT_MODE=worker; ttyd is bypassed entirely.
+COPY --chmod=0755 bin/worker.py /usr/local/bin/worker.py
 COPY --chown=${AGENT}:${AGENT} profile/.bashrc    /home/${AGENT}/.bashrc
 COPY --chown=${AGENT}:${AGENT} profile/.tmux.conf /home/${AGENT}/.tmux.conf
 
