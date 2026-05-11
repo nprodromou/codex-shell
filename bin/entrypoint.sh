@@ -210,7 +210,16 @@ EOF
 #                                        operator supervision via Manager
 #                                        callback (per-slot bearer token).
 #
-# Future modes (WOVED-126 follow-up): `auth-init` for slot OAuth provisioning.
+#   AGENT_MODE=smoke-test             —  one-shot startup probe (WOVED-147).
+#                                        Verifies the CLI binary works +
+#                                        credentials file is parseable.
+#                                        Used as a kubernetes startupProbe
+#                                        on slot worker pods — fast-fails
+#                                        with a structured exit code so the
+#                                        Manager can dispatch the right
+#                                        recovery (re-init vs re-auth vs
+#                                        escalate). No network calls; safe
+#                                        to run on every pod boot.
 AGENT_MODE="${AGENT_MODE:-interactive}"
 
 case "$AGENT_MODE" in
@@ -236,6 +245,18 @@ auth-init)
     #           WOVED_AUTH_INIT_POLL_S (default 2).
     exec /usr/local/bin/auth_init.py
     ;;
+smoke-test)
+    # First-boot auth probe (WOVED-147). Verifies the CLI binary
+    # works + credentials file is present and parseable. Required env:
+    #   WOVED_TASK_AGENT              — claude or codex
+    # Exit codes (consumed by Manager-side dispatch):
+    #   0  = ready
+    #   64 = CLI binary broken (image issue)
+    #   65 = credentials missing (slot needs init)
+    #   66 = credentials invalid (slot needs re-auth)
+    # No network calls — safe to run on every pod startupProbe tick.
+    exec /usr/local/bin/smoke_test.py
+    ;;
 interactive)
     # ttyd flags:
     #   --writable             : input enabled
@@ -255,7 +276,7 @@ interactive)
         bash -lc "${AGENT_LAUNCH_CMD}"
     ;;
 *)
-    echo "FATAL: unknown AGENT_MODE=${AGENT_MODE} (expected interactive|worker|auth-init)" >&2
+    echo "FATAL: unknown AGENT_MODE=${AGENT_MODE} (expected interactive|worker|auth-init|smoke-test)" >&2
     exit 1
     ;;
 esac
