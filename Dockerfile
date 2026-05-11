@@ -255,9 +255,17 @@ RUN set -eux; \
 # build pulls latest, which is non-reproducible and skips the patch
 # auto-merge gate.
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.133
+ARG CLAUDE_CODE_VERSION=2.1.139
 # renovate: datasource=npm depName=@openai/codex
-ARG OPENAI_CODEX_VERSION=0.129.0
+ARG OPENAI_CODEX_VERSION=0.130.0
+
+# Disable Claude Code's runtime auto-updater. Version is pinned via the
+# ARG above and bumped by Renovate PRs, not at runtime — that matches
+# the rest of the codex-shell pinning model. The auto-updater also can't
+# succeed inside the container anyway (npm rename within /usr/bin/
+# requires root, which the agent user is not), so leaving it enabled
+# just produces a noisy banner at TUI startup.
+ENV DISABLE_AUTOUPDATER=true
 # Install as root (writes to /usr/lib/node_modules), then chown the
 # scope directory + entrypoint symlink to uid/gid 10001 so the agent
 # user can run `npm install -g` for auto-updates without EACCES on the

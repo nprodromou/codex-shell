@@ -93,7 +93,11 @@ claude)
     INSTRUCTIONS_LINK="${AGENT_CONFIG_DIR}/CLAUDE.md"
     # Continue the most recent session; fall back to fresh claude if
     # none exists, then bash if claude exits.
-    AGENT_LAUNCH_CMD='claude --continue 2>/dev/null || claude; exec bash -l'
+    # --dangerously-skip-permissions: the pod is the sandbox boundary,
+    # and the agent is meant to operate without per-tool approval
+    # prompts. Without this flag every session has to re-enable it
+    # manually post-restart, which breaks unattended task execution.
+    AGENT_LAUNCH_CMD='claude --dangerously-skip-permissions --continue 2>/dev/null || claude --dangerously-skip-permissions; exec bash -l'
 
     mkdir -p "${AGENT_CONFIG_DIR}"
     # Claude Code uses interactive `/login` on first connect; credentials
