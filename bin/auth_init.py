@@ -61,6 +61,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 
 # Env contract — set by the chart's slot-init Pod manifest at spawn time.
 SLOT_ID = os.environ.get("WOVED_SLOT_ID", "")
@@ -341,33 +342,101 @@ def _snapshot_claude_dir() -> dict[str, tuple[int, float]]:
     return snapshot
 
 
+def _diff_auth_artifacts(
+    before: dict[str, tuple[int, float]],
+    after: dict[str, tuple[int, float]],
+) -> list[str]:
+    """Return the sorted list of new + modified file paths between the
+    pre-login and post-login snapshots of ~/.claude/. Empty = no
+    evidence of a successful login (the WOVED-131 false-positive
+    guard: the entrypoint pre-populates ~/.claude/ from
+    image-baked defaults, so the absolute-presence check we used
+    before was tripping even when claude exited without writing
+    real credentials).
+
+    Caller in main() uses the empty/non-empty status as the success
+    gate AND forwards the artifact list to the Manager's
+    /slots/<id>/auth-init/complete callback (WOVED-147) so the
+    refresh-token monitor + dashboard can show which files landed
+    without needing to kubectl exec into the pod."""
+    new_files = sorted(set(after) - set(before))
+    if new_files:
+        print(
+            f"auth-init: new file(s) under ~/.claude/: {new_files}",
+            file=sys.stderr,
+        )
+    modified = sorted(
+        rel for rel in set(after) & set(before) if after[rel] != before[rel]
+    )
+    if modified:
+        print(
+            f"auth-init: modified file(s) under ~/.claude/: {modified}",
+            file=sys.stderr,
+        )
+    return new_files + modified
+
+
 def _verify_new_auth_artifacts(
     before: dict[str, tuple[int, float]],
     after: dict[str, tuple[int, float]],
 ) -> bool:
-    """True iff `after` contains real evidence of a successful login —
-    a file that wasn't in `before`, OR an existing file whose size/mtime
-    changed. Catches the WOVED-131 false-positive where pre-populated
-    config files would otherwise pass a naive presence check.
+    """True iff `_diff_auth_artifacts` finds any new-or-modified file.
+    Thin wrapper kept for backward-compatible callers / tests."""
+    return bool(_diff_auth_artifacts(before, after))
 
-    A successful Claude Code OAuth login writes credentials to
-    ~/.claude/ (exact filename TBD per CLI version — typically
-    something like `credentials.json` or `.credentials/`). The
-    snapshot-diff approach is robust to that uncertainty: anything
-    new or modified relative to the pre-login state counts."""
-    new_files = set(after) - set(before)
-    if new_files:
-        print(f"auth-init: new file(s) under ~/.claude/: {sorted(new_files)}", file=sys.stderr)
-        return True
-    modified = [
-        rel
-        for rel in set(after) & set(before)
-        if after[rel] != before[rel]
-    ]
-    if modified:
-        print(f"auth-init: modified file(s) under ~/.claude/: {sorted(modified)}", file=sys.stderr)
-        return True
-    return False
+
+def _post_complete(artifacts: list[str]) -> None:
+    """POST the auth-completion notification to the Manager (WOVED-147).
+
+    Manager records a `slot_auth_completed` audit event with the
+    artifact list + timestamp. The refresh-token monitor reads those
+    events later to compute time-to-expiry per slot and fire
+    `[for-nate] re-auth slot <ID>` Plane tickets ~7 days before the
+    upstream refresh token expires.
+
+    Best-effort: a failed POST is logged but doesn't fail the init.
+    The slot is still operational (credentials are on the PVC); only
+    the expiry-monitoring loop loses one signal. Cases the caller
+    accepts as soft-fail:
+      - 404: older Manager that doesn't have the endpoint yet. The
+        WOVED-147 PR sequence ships Manager-side first (woved#86)
+        and codex-shell second; a pod built from this commit
+        against a pre-#86 Manager will see 404 and move on.
+      - 5xx / transport: Manager pod restart mid-call, network
+        hiccup. Auth state is durable on the PVC; the next slot
+        rotation re-fires the event when the slot is re-init'd.
+
+    Send the full artifact list — the Manager-side handler
+    (woved#86) does the truncation + records `artifacts_truncated_from`
+    on the audit row. Client-side capping would silently lose the
+    original count because the Manager only sets the truncation field
+    when ITS view of the list exceeds the cap. Codex flagged this in
+    cross-review of the first cut of this PR."""
+    target = f"{CALLBACK_URL}/slots/{SLOT_ID}/auth-init/complete"
+    body: dict[str, object] = {
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "agent": TASK_AGENT,
+        "artifacts": artifacts,
+    }
+    rc = _http_post(target, body)
+    if rc == 204:
+        print("auth-init: posted /complete to Manager", file=sys.stderr)
+        return
+    if rc == 404:
+        print(
+            "auth-init: Manager has no /complete endpoint yet "
+            "(WOVED-147 still rolling out) — skipping",
+            file=sys.stderr,
+        )
+        return
+    # Anything else is best-effort soft-fail; init pod stays exit 0
+    # because the credential file already landed on the PVC.
+    print(
+        f"auth-init: /complete POST returned {rc} — refresh-token "
+        "monitor will be missing one slot_auth_completed event "
+        "(slot is still operational)",
+        file=sys.stderr,
+    )
 
 
 def main() -> int:
@@ -381,7 +450,8 @@ def main() -> int:
         print(f"auth-init: agent exited non-zero ({rc})", file=sys.stderr)
         return rc
     after = _snapshot_claude_dir()
-    if not _verify_new_auth_artifacts(before, after):
+    artifacts = _diff_auth_artifacts(before, after)
+    if not artifacts:
         print(
             "auth-init: agent exited 0 but no NEW or MODIFIED files under "
             "~/.claude/ — treating as failure (entrypoint pre-populates "
@@ -390,6 +460,11 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+    # WOVED-147: notify the Manager so the refresh-token monitor's
+    # audit stream records the completion. Best-effort — failure
+    # doesn't block the init since credentials already landed on the
+    # PVC; the next rotation will refire the event.
+    _post_complete(artifacts)
     print("auth-init: success — slot is ready for tasks", file=sys.stderr)
     return 0
 
