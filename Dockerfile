@@ -258,9 +258,19 @@ RUN set -eux; \
 ARG CLAUDE_CODE_VERSION=2.1.133
 # renovate: datasource=npm depName=@openai/codex
 ARG OPENAI_CODEX_VERSION=0.129.0
+# Install as root (writes to /usr/lib/node_modules), then chown the
+# scope directory + entrypoint symlink to uid/gid 10001 so the agent
+# user can run `npm install -g` for auto-updates without EACCES on the
+# rename within the @scope/ parent. The agent user is created later
+# (L282-283) but uid/gid 10001 are pinned constants, so numeric chown
+# here is safe and order-independent.
 RUN case "$AGENT" in \
-      codex)  npm install -g "@openai/codex@${OPENAI_CODEX_VERSION}" ;; \
-      claude) npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" ;; \
+      codex)  npm install -g "@openai/codex@${OPENAI_CODEX_VERSION}" \
+              && chown -R 10001:10001 /usr/lib/node_modules/@openai \
+              && chown -h 10001:10001 /usr/bin/codex ;; \
+      claude) npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+              && chown -R 10001:10001 /usr/lib/node_modules/@anthropic-ai \
+              && chown -h 10001:10001 /usr/bin/claude ;; \
     esac && npm cache clean --force
 
 # Non-root user. uid/gid 10001, name = AGENT.
