@@ -406,18 +406,18 @@ def _post_complete(artifacts: list[str]) -> None:
         hiccup. Auth state is durable on the PVC; the next slot
         rotation re-fires the event when the slot is re-init'd.
 
-    The 32-artifact cap matches the Manager-side audit metadata
-    truncation so the diagnostic stays consistent across both ends."""
+    Send the full artifact list — the Manager-side handler
+    (woved#86) does the truncation + records `artifacts_truncated_from`
+    on the audit row. Client-side capping would silently lose the
+    original count because the Manager only sets the truncation field
+    when ITS view of the list exceeds the cap. Codex flagged this in
+    cross-review of the first cut of this PR."""
     target = f"{CALLBACK_URL}/slots/{SLOT_ID}/auth-init/complete"
     body: dict[str, object] = {
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "agent": TASK_AGENT,
-        "artifacts": artifacts[:32],
+        "artifacts": artifacts,
     }
-    if len(artifacts) > 32:
-        # Surface the original count so the operator can tell
-        # truncation happened without re-running the dance.
-        body["artifacts_truncated_from"] = len(artifacts)
     rc = _http_post(target, body)
     if rc == 204:
         print("auth-init: posted /complete to Manager", file=sys.stderr)
