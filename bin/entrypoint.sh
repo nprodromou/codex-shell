@@ -13,6 +13,41 @@ set -euo pipefail
 # AGENT is set by the Dockerfile based on the build-time AGENT arg.
 : "${AGENT:?AGENT must be set by the image (build bug if missing)}"
 
+# Retry a command with exponential backoff before treating its failure
+# as fatal to pod boot. Used for steps that MUST succeed for the pod to
+# come up healthy — silently degrading (the prior `|| echo warning`
+# pattern, OPS-441) masked GitHub auth blips and rate-limit hits and
+# left pods running with stale or missing skills.
+#
+# Schedule: 1 initial attempt plus up to 3 retries (4 total tries),
+# sleeping 10s / 30s / 60s before each retry (~100s of patience before
+# declaring failure). On final failure: log FATAL and exit 1 so kubelet
+# surfaces CrashLoopBackOff.
+#
+# Usage:  retry_or_fatal "<description>" <command> [args...]
+# Tip: to retry a compound expression, define a small wrapper function
+# and pass its name (shell functions are callable as a command).
+retry_or_fatal() {
+    local description="$1"
+    shift
+    local delays=(10 30 60)
+    local attempts=$(( ${#delays[@]} + 1 ))
+    local attempt=1
+    while [ "$attempt" -le "$attempts" ]; do
+        if "$@"; then
+            return 0
+        fi
+        if [ "$attempt" -lt "$attempts" ]; then
+            local delay="${delays[$((attempt - 1))]}"
+            echo "warning: ${description} failed (attempt ${attempt}/${attempts}); retrying in ${delay}s" >&2
+            sleep "$delay"
+        fi
+        attempt=$((attempt + 1))
+    done
+    echo "FATAL: ${description} failed after ${attempts} attempts; aborting pod boot" >&2
+    exit 1
+}
+
 # Common env-var contract — required for every agent.
 : "${GH_TOKEN:?GH_TOKEN must be set (1Password: op://Kubernetes/${AGENT}-github-pat/pat)}"
 : "${GIT_USER_NAME:=${AGENT^} CoWork}"
@@ -161,13 +196,21 @@ fi
 # file (CLAUDE.md). Symlinked into the agent's expected location so
 # updates to agent-config reach the pod on next restart without an
 # image rebuild.
+#
+# Failure here used to be a silent `|| echo warning`, which left pods
+# running with stale CLAUDE.md and missing skills on transient GitHub
+# auth blips or rate limits — degraded with no observable signal
+# (OPS-441). Each step now retries with backoff, then crash-loops the
+# pod via retry_or_fatal so kubelet surfaces the failure.
 AGENT_CONFIG_REPO_DIR="${HOME}/.agent-config"
 if [ ! -d "${AGENT_CONFIG_REPO_DIR}/.git" ]; then
-    git clone --depth=1 https://github.com/nprodromou/agent-config "${AGENT_CONFIG_REPO_DIR}" \
-        || echo "warning: could not clone agent-config (continuing without shared instructions)" >&2
+    retry_or_fatal "agent-config clone" \
+        git clone --depth=1 https://github.com/nprodromou/agent-config "${AGENT_CONFIG_REPO_DIR}"
 else
-    git -C "${AGENT_CONFIG_REPO_DIR}" fetch --depth=1 origin main 2>/dev/null || true
-    git -C "${AGENT_CONFIG_REPO_DIR}" reset --hard origin/main 2>/dev/null || true
+    retry_or_fatal "agent-config fetch" \
+        git -C "${AGENT_CONFIG_REPO_DIR}" fetch --depth=1 origin main
+    retry_or_fatal "agent-config reset" \
+        git -C "${AGENT_CONFIG_REPO_DIR}" reset --hard origin/main
 fi
 
 if [ -f "${AGENT_CONFIG_REPO_DIR}/instructions/CLAUDE.md" ]; then
@@ -179,9 +222,15 @@ fi
 # for the skills target (cp -R overwrites). Other install targets (mcp,
 # instructions, settings) are deliberately skipped — those live in the
 # apk8s ConfigMap / entrypoint, not in agent-config's local install.
+#
+# Same silent-fallback fix as the clone above (OPS-441): a failing
+# install.sh leaves the pod without new skills, so we retry then
+# crash-loop rather than continue degraded.
+_run_install_skills() {
+    (cd "${AGENT_CONFIG_REPO_DIR}" && ./install.sh skills)
+}
 if [ -x "${AGENT_CONFIG_REPO_DIR}/install.sh" ]; then
-    (cd "${AGENT_CONFIG_REPO_DIR}" && ./install.sh skills) \
-        || echo "warning: install.sh skills failed (continuing without skill update)" >&2
+    retry_or_fatal "install.sh skills" _run_install_skills
 fi
 
 # Identity banner — surfaced by the bash prompt on login.
