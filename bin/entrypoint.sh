@@ -233,6 +233,25 @@ if [ -x "${AGENT_CONFIG_REPO_DIR}/install.sh" ]; then
     retry_or_fatal "install.sh skills" _run_install_skills
 fi
 
+# Startup tasks marker — written on every pod boot. The agent reads this
+# file at the start of every session per the "Startup Tasks" section of
+# CLAUDE.md/AGENTS.md, and executes each non-comment line as a slash-command
+# before doing anything else. The file is NOT truncated after execution —
+# every session in the pod re-runs these tasks (cross-agent-review picks
+# up new ball-in-court items each time, so re-running is the point).
+# Override per-deploy by setting STARTUP_TASKS in the pod env; set it to
+# a single comment line (e.g. "# disabled") to opt out.
+STARTUP_TASKS_FILE="${AGENT_CONFIG_DIR}/startup-tasks"
+{
+    echo "# Startup tasks. One slash-command per line. Lines starting with"
+    echo "# # are comments. Re-run on every session — do not truncate."
+    if [ -n "${STARTUP_TASKS:-}" ]; then
+        printf '%s\n' "${STARTUP_TASKS}"
+    else
+        echo "/cross-agent-review"
+    fi
+} > "${STARTUP_TASKS_FILE}"
+
 # Identity banner — surfaced by the bash prompt on login.
 AGENT_CONFIG_SHA="$(git -C "${AGENT_CONFIG_REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo missing)"
 cat > "${HOME}/.${AGENT}-identity" <<EOF
