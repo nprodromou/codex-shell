@@ -37,6 +37,16 @@ RUN set -eux; \
     rm -rf "/tmp/gh_${GH_VERSION}_linux_${arch}"; \
     gh --version | head -1
 
+# Node.js — required for npm / claude-code.
+# codercom/code-server bundles its own Node.js for the IDE but does not
+# expose npm on PATH. Install a system-level LTS Node.js so the integrated
+# terminal can use npm/npx like any dev machine.
+# renovate: datasource=node-version depName=node versioning=node
+ARG NODE_VERSION=22
+RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
 # Claude Code — AI coding assistant accessible from the integrated terminal.
 # Pinned version kept in lockstep with the main codex-shell Dockerfile.
 # DISABLE_AUTOUPDATER: pin is managed by Renovate, not the runtime.
