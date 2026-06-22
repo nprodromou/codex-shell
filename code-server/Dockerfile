@@ -3,7 +3,7 @@
 # Extends the upstream codercom/code-server with:
 #   - gh CLI for GitHub operations from the integrated terminal
 #   - tmux for persistent terminal sessions
-#   - claude (Claude Code) for integrated AI assistance
+#   - claude (Claude Code) and codex for integrated AI assistance
 #   - entrypoint that configures git identity + gh auth from env vars on boot
 #
 # Deployed at code-server.prodromou.com via WARP private routing
@@ -47,13 +47,17 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Claude Code — AI coding assistant accessible from the integrated terminal.
-# Pinned version kept in lockstep with the main codex-shell Dockerfile.
-# DISABLE_AUTOUPDATER: pin is managed by Renovate, not the runtime.
+# Claude Code + Codex CLI — AI coding assistants for the integrated terminal.
+# Versions pinned in lockstep with the main codex-shell Dockerfile.
+# DISABLE_AUTOUPDATER: pin is managed by Renovate, not at runtime.
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
 ARG CLAUDE_CODE_VERSION=2.1.170
+# renovate: datasource=npm depName=@openai/codex
+ARG OPENAI_CODEX_VERSION=0.130.0
 ENV DISABLE_AUTOUPDATER=true
-RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+RUN npm install -g \
+        "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+        "@openai/codex@${OPENAI_CODEX_VERSION}" \
     && npm cache clean --force
 
 # Startup script: configure git identity + gh auth from env vars, then start code-server.
