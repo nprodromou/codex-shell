@@ -1,0 +1,63 @@
+# code-server image — VS Code in the browser for apk8s.
+# Extends codercom/code-server with the agent toolchain: gh CLI, tmux,
+# ripgrep, jq, and the codex + claude-code CLIs so the integrated terminal
+# can run them without a separate setup step.
+#
+# Deployed under agents/code-server in apk8s (WOVED-35).
+# Accessible at code-server.prodromou.com via CF Tunnel + Cloudflare Access.
+# Identity (gh auth, git config) is wired up by the custom entrypoint from
+# GH_TOKEN / GIT_USER_NAME / GIT_USER_EMAIL in the pod secret.
+
+FROM codercom/code-server:latest
+
+USER root
+
+# ── gh CLI ────────────────────────────────────────────────────────────────
+# renovate: datasource=github-releases depName=cli/cli
+ARG GH_VERSION=v2.87.3
+
+# ── Agent CLIs (npm) ──────────────────────────────────────────────────────
+# renovate: datasource=npm depName=@openai/codex
+ARG OPENAI_CODEX_VERSION=0.130.0
+# renovate: datasource=npm depName=@anthropic-ai/claude-code
+ARG CLAUDE_CODE_VERSION=2.1.139
+
+# Disable Claude Code's runtime auto-updater — version is pinned above and
+# bumped by Renovate PRs, so the in-process updater would only produce a
+# noisy banner and then fail (npm rename inside /usr/bin/ requires root).
+ENV DISABLE_AUTOUPDATER=true
+
+# Install system tools, gh CLI, and npm-based agent CLIs in one layer.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        tmux ripgrep fd-find jq unzip curl; \
+    # fd is renamed fdfind on Debian; expose canonical name.
+    ln -sf /usr/bin/fdfind /usr/local/bin/fd; \
+    \
+    # gh CLI — pinned upstream binary release.
+    arch="$(dpkg --print-architecture)"; \
+    GH_VER="${GH_VERSION#v}"; \
+    curl -fsSL \
+      "https://github.com/cli/cli/releases/download/${GH_VERSION}/gh_${GH_VER}_linux_${arch}.tar.gz" \
+      | tar -xz -C /tmp; \
+    mv "/tmp/gh_${GH_VER}_linux_${arch}/bin/gh" /usr/local/bin/gh; \
+    rm -rf "/tmp/gh_${GH_VER}_linux_${arch}"; \
+    gh --version; \
+    \
+    # Agent CLIs via npm.  code-server's base image ships Node.js; we
+    # install these as root so they land in /usr/bin/{codex,claude}.
+    npm install -g \
+        "@openai/codex@${OPENAI_CODEX_VERSION}" \
+        "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"; \
+    npm cache clean --force; \
+    \
+    rm -rf /var/lib/apt/lists/*
+
+# Custom entrypoint — configures git identity + gh auth from env, then
+# execs the upstream code-server binary.
+COPY --chmod=0755 bin/code-server-entrypoint.sh /usr/local/bin/code-server-entrypoint.sh
+
+USER coder
+
+ENTRYPOINT ["/usr/local/bin/code-server-entrypoint.sh"]
