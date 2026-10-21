@@ -15,6 +15,10 @@
 FROM debian:bookworm-slim
 
 ARG NODE_VERSION=22
+# Lowest acceptable Node patch on the NODE_VERSION line. NodeSource floats
+# within the major, so the build asserts this floor rather than trusting the
+# mirror: 22.23.4 carries the October 2026 security release (WOVED-7819).
+ARG NODE_MIN_VERSION=22.23.4
 ARG AGENT=codex
 
 # Validate AGENT early so an unsupported value fails the build cleanly.
@@ -48,6 +52,7 @@ RUN set -eux; \
     # the agent CLIs.
     curl -fsSL "https://deb.nodesource.com/setup_${NODE_VERSION}.x" | bash -; \
     apt-get install -y --no-install-recommends nodejs; \
+    dpkg --compare-versions "$(node --version | sed 's/^v//')" ge "${NODE_MIN_VERSION}"; \
     rm -rf /var/lib/apt/lists/*
 
 # ttyd — fetch the upstream static binary release.
