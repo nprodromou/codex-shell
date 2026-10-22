@@ -43,8 +43,13 @@ RUN set -eux; \
 # terminal can use npm/npx like any dev machine.
 # renovate: datasource=node-version depName=node versioning=node
 ARG NODE_VERSION=22
+# Floor for the system Node on that line (October 2026 security release,
+# WOVED-7819). The IDE's own bundled Node comes from the code-server base
+# image and moves only when upstream ships a release built on a patched Node.
+ARG NODE_MIN_VERSION=22.23.4
 RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
+    && dpkg --compare-versions "$(node --version | sed 's/^v//')" ge "${NODE_MIN_VERSION}" \
     && rm -rf /var/lib/apt/lists/*
 
 # Claude Code + Codex CLI — AI coding assistants for the integrated terminal.
